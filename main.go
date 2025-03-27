@@ -1,53 +1,81 @@
 package main
 
 import (
-	"fmt"
 	dn "github.com/mitchellh/go-ps"
+	"github.com/sevlyar/go-daemon"
+	"log"
 	"os/exec"
 	"strings"
 	"time"
 )
 
+type AppState int
+type TimerState int
+
+const (
+	Open AppState = iota
+	Closed
+)
+
+const (
+	Play TimerState = iota
+	Pause
+	Running
+)
+
+type AnkiTimer struct {
+	time  time.Duration
+	state TimerState
+}
+
 func main() {
 
-	time.Sleep(5 * time.Second)
+	cntxt := &daemon.Context{
+		PidFileName: "kansa.pid",
+		PidFilePerm: 0644,
+		LogFileName: "kansa.log",
+		LogFilePerm: 0640,
+		WorkDir:     "./",
+		Umask:       027,
+		Args:        []string{"[go-daemon sample]"},
+	}
 
+	d, err := cntxt.Reborn()
+	if err != nil {
+		log.Fatal("Unable to run: ", err)
+	}
+	if d != nil {
+		return
+	}
+	defer cntxt.Release()
+
+	log.Printf("Daemon Started!!!! Kansa daemon")
+
+	for {
+		log.Print("In main loop")
+
+		// idle state
+
+		// anki open + actve
+
+		// anki closed (stopped timer)
+
+	}
+
+}
+
+// go routine for wathcing anki
+func isAnkiRunning() bool {
 	allPro, _ := dn.Processes()
-	isAnkirunning := false
-	isAnkiActive := false
 
 	for _, pro := range allPro {
 
-		if pro.Executable() == "anki" {
-			isAnkirunning = true
+		if pro.Executable() == "anki" && isWindowActive("anki") {
+			return true
 		}
 	}
 
-	if isWindowActive("anki") {
-		isAnkiActive = true
-	} else {
-		println("Anki not active lel")
-	}
-
-	if isAnkirunning && isAnkiActive {
-		for {
-			start := time.Now()
-
-			time.Sleep(2 * time.Second)
-
-			elapsed := time.Since(start)
-			fmt.Printf("Elapsed time: %s\n", elapsed)
-
-			if !isWindowActive("anki") {
-				println("exited Anki stopping timer!")
-				break
-			}
-
-		}
-	} else {
-		fmt.Printf("------------CANT START TIMER------------\n")
-		fmt.Printf("Anki is running: %v \nAnki is active: %v", isAnkirunning, isAnkiActive)
-	}
+	return false
 
 }
 
@@ -62,4 +90,16 @@ func isWindowActive(s string) bool {
 	}
 
 	return false
+}
+
+// go routine for starting timer
+func trackAnkiTime(timer *AnkiTimer) {
+	if timer.state == Running {
+		var elapsed time.Duration
+		start := time.Now()
+		timer.state = Running
+
+		elapsed += time.Since(start)
+		timer.time += elapsed
+	}
 }
