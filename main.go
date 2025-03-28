@@ -51,32 +51,32 @@ func main() {
 
 	log.Printf("Daemon Started!!!! Kansa daemon")
 
+	timerch := make(chan TimerState)
+	//controlch = make(chan AppState)
+	timer := AnkiTimer{
+		time:  0,
+		state: Pause,
+	}
+
 	for {
-		log.Print("In main loop")
-
-		// idle state
-
-		// anki open + actve
-
-		// anki closed (stopped timer)
-
+		go isAnkiRunning(timerch)
+		go trackAnkiTime(&timer, timerch)
+		log.Printf("Time on Anki: %d ", timer.time)
 	}
 
 }
 
 // go routine for wathcing anki
-func isAnkiRunning() bool {
+func isAnkiRunning(c chan<- TimerState) {
 	allPro, _ := dn.Processes()
 
 	for _, pro := range allPro {
 
 		if pro.Executable() == "anki" && isWindowActive("anki") {
-			return true
+			c <- Play
 		}
 	}
-
-	return false
-
+	c <- Pause
 }
 
 func isWindowActive(s string) bool {
@@ -93,13 +93,16 @@ func isWindowActive(s string) bool {
 }
 
 // go routine for starting timer
-func trackAnkiTime(timer *AnkiTimer) {
-	if timer.state == Running {
-		var elapsed time.Duration
-		start := time.Now()
-		timer.state = Running
+func trackAnkiTime(timer *AnkiTimer, c <-chan TimerState) {
+	start := time.Now()
 
-		elapsed += time.Since(start)
-		timer.time += elapsed
+	timer.state = Running
+	select {
+	case msg := <-c:
+		if msg == Pause {
+			timer.time += time.Since(start)
+			timer.state = Pause
+			return
+		}
 	}
 }
