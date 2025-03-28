@@ -59,24 +59,36 @@ func main() {
 	}
 
 	for {
-		go isAnkiRunning(timerch)
-		go trackAnkiTime(&timer, timerch)
-		log.Printf("Time on Anki: %d ", timer.time)
+		if isAnkiRunning() {
+			if timer.state == Pause {
+				go trackAnkiTime(&timer, timerch)
+			}
+		} else {
+			if timer.state == Running {
+				timerch <- Pause
+			}
+		}
+		log.Printf("Time on Anki: %v ", timer.time)
+		//cmd := exec.Command("osascript", "-e", `tell application "System Events" to get name of first application process whose frontmost is true`)
+		//out, _ := cmd.Output()
+		//str := string(out)
+		//log.Printf(str)
+		time.Sleep(2 * time.Second)
 	}
 
 }
 
 // go routine for wathcing anki
-func isAnkiRunning(c chan<- TimerState) {
+func isAnkiRunning() bool {
 	allPro, _ := dn.Processes()
 
 	for _, pro := range allPro {
 
 		if pro.Executable() == "anki" && isWindowActive("anki") {
-			c <- Play
+			return true
 		}
 	}
-	c <- Pause
+	return false
 }
 
 func isWindowActive(s string) bool {
@@ -84,6 +96,7 @@ func isWindowActive(s string) bool {
 	out, _ := cmd.Output()
 	str := string(out)
 	str = strings.TrimSpace(str)
+	log.Printf(str)
 
 	if str == s {
 		return true
