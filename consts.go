@@ -3,6 +3,7 @@ package main
 type AppState int
 type TimerState int
 
+//go:generate stringer -type=Programs
 type Programs int
 
 const (
@@ -11,7 +12,11 @@ const (
 )
 
 const (
-	Anki Programs = iota
+	anki Programs = iota
+	mpv
+	ttsu
+	asbplayer
+	VLC
 )
 
 const (

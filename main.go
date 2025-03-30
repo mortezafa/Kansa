@@ -11,10 +11,11 @@ import (
 	"time"
 )
 
-type AnkiTimer struct {
-	time  time.Duration
-	state TimerState
-	start time.Time
+type ProgramTimer struct {
+	time    time.Duration
+	state   TimerState
+	start   time.Time
+	program Programs
 }
 
 func main() {
@@ -40,7 +41,7 @@ func main() {
 
 	log.Printf("Daemon Started!!!! Kansa daemon")
 
-	timerch := make(chan TimerState)
+	//timerch := make(chan TimerState)
 	db, err := sql.Open("sqlite3", "./test2.db")
 
 	if err != nil {
@@ -53,41 +54,58 @@ func main() {
 	log.Printf("pasted opening")
 	initDB(db)
 	log.Printf("pasted initDB")
-	timer := AnkiTimer{
-		time:  0,
-		state: Pause,
+	timers := map[Programs]*ProgramTimer{
+		anki:      &ProgramTimer{program: anki, state: Pause, start: time.Now()},
+		mpv:       &ProgramTimer{program: mpv, state: Pause, start: time.Now()},
+		ttsu:      &ProgramTimer{program: ttsu, state: Pause, start: time.Now()},
+		asbplayer: &ProgramTimer{program: asbplayer, state: Pause, start: time.Now()},
+		VLC:       &ProgramTimer{program: VLC, state: Pause, start: time.Now()},
 	}
 
 	for {
-		if isAnkiRunning() {
-			if timer.state == Pause {
-				timer.start = time.Now()
-				go trackAnkiTime(&timer, timerch)
+		currentProg := getCurrentProg()
+
+		for _, prog := range timers {
+			if isProgRunning(prog.program.String()) && prog.program.String() == currentProg && prog.state == Pause {
+				prog.start = time.Now()
+				prog.state = Running
+			} else {
+				if prog.state == Running {
+					prog.time += time.Since(prog.start)
+					prog.state = Pause
+				}
 			}
-		} else {
-			if timer.state == Running {
-				timerch <- Pause
+			if prog.state == Running {
+				log.Printf("Time on %s: %v \n", prog.program.String(), prog.time+time.Since(prog.start))
+			} else {
+				log.Printf("Time on %s: %v \n", prog.program.String(), prog.time)
 			}
-		}
-		if timer.state == Running {
-			log.Printf("Time on Anki: %v", timer.time+time.Since(timer.start))
-		} else {
-			log.Printf("Time on Anki: %v", timer.time)
 		}
 
-		sendDatatoDB(db, Anki, &timer)
 		time.Sleep(500 * time.Millisecond)
+
+		//if isAnkiRunning() { // is Application running
+		//	if timer.state == Pause {
+		//		timer.start = time.Now()
+		//		go trackAnkiTime(&timer, timerch)
+		//	}
+		//} else {
+		//	if timer.state == Running {
+		//		timerch <- Pause
+		//	}
+		//}
+
 	}
 
 }
 
 // go routine for wathcing anki
-func isAnkiRunning() bool {
+func isProgRunning(pn string) bool {
 	allPro, _ := dn.Processes()
 
 	for _, pro := range allPro {
 
-		if pro.Executable() == "anki" && isWindowActive("anki") {
+		if pro.Executable() == pn && isWindowActive(pn) {
 			return true
 		}
 	}
@@ -99,7 +117,7 @@ func isWindowActive(s string) bool {
 	out, _ := cmd.Output()
 	str := string(out)
 	str = strings.TrimSpace(str)
-	log.Printf(str)
+	log.Printf("CURRENT PROG: %s", str)
 
 	if str == s {
 		return true
@@ -108,8 +126,16 @@ func isWindowActive(s string) bool {
 	return false
 }
 
+func getCurrentProg() string {
+	cmd := exec.Command("osascript", "-e", `tell application "System Events" to get name of first application process whose frontmost is true`)
+	out, _ := cmd.Output()
+	str := string(out)
+	str = strings.TrimSpace(str)
+	return str
+}
+
 // go routine for starting timer
-func trackAnkiTime(timer *AnkiTimer, c <-chan TimerState) {
+func trackAnkiTime(timer *ProgramTimer, c <-chan TimerState) {
 	start := timer.start
 
 	timer.state = Running
@@ -152,8 +178,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 	log.Println("Tables initialized successfully")
 }
 
-func sendDatatoDB(db *sql.DB, p Programs, t *AnkiTimer) {
-	res, err := db.Exec(`INSERT OR IGNORE INTO programs (name) VALUES (?)`, "%s", p)
+func sendDatatoDB(db *sql.DB, p Programs, t *ProgramTimer) {
+	res, err := db.Exec(`INSERT OR IGNORE INTO programs (name) VALUES (?)`, p.String())
 	if err != nil {
 		log.Fatal(err)
 	}
