@@ -1,26 +1,14 @@
 package main
 
 import (
+	"database/sql"
+	_ "github.com/mattn/go-sqlite3"
 	dn "github.com/mitchellh/go-ps"
 	"github.com/sevlyar/go-daemon"
 	"log"
 	"os/exec"
 	"strings"
 	"time"
-)
-
-type AppState int
-type TimerState int
-
-const (
-	Open AppState = iota
-	Closed
-)
-
-const (
-	Play TimerState = iota
-	Pause
-	Running
 )
 
 type AnkiTimer struct {
@@ -52,7 +40,17 @@ func main() {
 	log.Printf("Daemon Started!!!! Kansa daemon")
 
 	timerch := make(chan TimerState)
-	//controlch = make(chan AppState)
+	db, err := sql.Open("sqlite3", "./test.db")
+	if err != nil {
+		log.Fatal("DB open error: ", err)
+	}
+	if err = db.Ping(); err != nil {
+		log.Fatal("DB connection failed: ", err)
+	}
+
+	log.Printf("pasted opening")
+	initDB(db)
+	log.Printf("pasted initDB")
 	timer := AnkiTimer{
 		time:  0,
 		state: Pause,
@@ -69,11 +67,8 @@ func main() {
 			}
 		}
 		log.Printf("Time on Anki: %v ", timer.time)
-		//cmd := exec.Command("osascript", "-e", `tell application "System Events" to get name of first application process whose frontmost is true`)
-		//out, _ := cmd.Output()
-		//str := string(out)
-		//log.Printf(str)
-		time.Sleep(2 * time.Second)
+		sendDatatoDB(db, Anki, &timer)
+		time.Sleep(10 * time.Second)
 	}
 
 }
@@ -117,5 +112,53 @@ func trackAnkiTime(timer *AnkiTimer, c <-chan TimerState) {
 			timer.state = Pause
 			return
 		}
+	}
+}
+
+func initDB(db *sql.DB) {
+	createProgramTableSQL := `
+CREATE TABLE IF NOT EXISTS programs (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT UNIQUE NOT NULL
+);`
+
+	createSessionTableSQL := `
+CREATE TABLE IF NOT EXISTS sessions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	program_id INTEGER NOT NULL REFERENCES programs(id),
+	date DATE NOT NULL,
+	duration INTEGER NOT NULL,
+	UNIQUE(program_id, date)
+);`
+
+	_, err := db.Exec(createProgramTableSQL)
+	if err != nil {
+		log.Fatal("Error creating programs table:", err)
+	}
+
+	_, err = db.Exec(createSessionTableSQL)
+	if err != nil {
+		log.Fatal("Error creating sessions table:", err)
+	}
+
+	log.Println("Tables initialized successfully")
+}
+
+func sendDatatoDB(db *sql.DB, p Programs, t *AnkiTimer) {
+	res, err := db.Exec(`INSERT OR IGNORE INTO programs (name) VALUES (?)`, "%s", p)
+	if err != nil {
+		log.Fatal(err)
+	}
+	programID, err := res.LastInsertId()
+
+	_, err = db.Exec(`
+INSERT INTO sessions (program_id, date, duration)
+VALUES (?, ?, ?)
+ON CONFLICT(program_id, date) DO UPDATE SET
+    duration = excluded.duration
+`, programID, time.Now().Format(time.DateOnly), t.time.String())
+
+	if err != nil {
+		log.Fatal(err)
 	}
 }
