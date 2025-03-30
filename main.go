@@ -14,6 +14,7 @@ import (
 type AnkiTimer struct {
 	time  time.Duration
 	state TimerState
+	start time.Time
 }
 
 func main() {
@@ -49,7 +50,7 @@ func main() {
 	}
 
 	log.Printf("pasted opening")
-	initDB(db)
+	//initDB(db)
 	log.Printf("pasted initDB")
 	timer := AnkiTimer{
 		time:  0,
@@ -59,6 +60,7 @@ func main() {
 	for {
 		if isAnkiRunning() {
 			if timer.state == Pause {
+				timer.start = time.Now()
 				go trackAnkiTime(&timer, timerch)
 			}
 		} else {
@@ -66,9 +68,14 @@ func main() {
 				timerch <- Pause
 			}
 		}
-		log.Printf("Time on Anki: %v ", timer.time)
-		sendDatatoDB(db, Anki, &timer)
-		time.Sleep(10 * time.Second)
+		if timer.state == Running {
+			log.Printf("Time on Anki: %v", timer.time+time.Since(timer.start))
+		} else {
+			log.Printf("Time on Anki: %v", timer.time)
+		}
+
+		//sendDatatoDB(db, Anki, &timer)
+		time.Sleep(500 * time.Millisecond)
 	}
 
 }
@@ -102,7 +109,7 @@ func isWindowActive(s string) bool {
 
 // go routine for starting timer
 func trackAnkiTime(timer *AnkiTimer, c <-chan TimerState) {
-	start := time.Now()
+	start := timer.start
 
 	timer.state = Running
 	select {
