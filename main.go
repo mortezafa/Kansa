@@ -41,7 +41,8 @@ func main() {
 	log.Printf("Daemon Started!!!! Kansa daemon")
 
 	timerch := make(chan TimerState)
-	db, err := sql.Open("sqlite3", "./test.db")
+	db, err := sql.Open("sqlite3", "./test2.db")
+
 	if err != nil {
 		log.Fatal("DB open error: ", err)
 	}
@@ -50,7 +51,7 @@ func main() {
 	}
 
 	log.Printf("pasted opening")
-	//initDB(db)
+	initDB(db)
 	log.Printf("pasted initDB")
 	timer := AnkiTimer{
 		time:  0,
@@ -74,7 +75,7 @@ func main() {
 			log.Printf("Time on Anki: %v", timer.time)
 		}
 
-		//sendDatatoDB(db, Anki, &timer)
+		sendDatatoDB(db, Anki, &timer)
 		time.Sleep(500 * time.Millisecond)
 	}
 
