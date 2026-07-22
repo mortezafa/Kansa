@@ -2,13 +2,16 @@ package main
 
 import (
 	"database/sql"
-	_ "github.com/mattn/go-sqlite3"
-	dn "github.com/mitchellh/go-ps"
-	"github.com/sevlyar/go-daemon"
+	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+	dn "github.com/mitchellh/go-ps"
+	"github.com/sevlyar/go-daemon"
 )
 
 type ProgramTimer struct {
@@ -19,6 +22,11 @@ type ProgramTimer struct {
 }
 
 func main() {
+
+	if len(os.Args) > 1 && os.Args[1] == "report" {
+		runReport()
+		return
+	}
 
 	cntxt := &daemon.Context{
 		PidFileName: "kansa.pid",
@@ -41,8 +49,7 @@ func main() {
 
 	log.Printf("Daemon Started!!!! Kansa daemon")
 
-	//timerch := make(chan TimerState)
-	db, err := sql.Open("sqlite3", "./test2.db")
+	db, err := sql.Open("sqlite3", "./kansa.db")
 
 	if err != nil {
 		log.Fatal("DB open error: ", err)
@@ -50,6 +57,7 @@ func main() {
 	if err = db.Ping(); err != nil {
 		log.Fatal("DB connection failed: ", err)
 	}
+	defer db.Close()
 
 	log.Printf("pasted opening")
 	initDB(db)
@@ -73,6 +81,7 @@ func main() {
 				if prog.state == Running {
 					prog.time += time.Since(prog.start)
 					prog.state = Pause
+					sendDatatoDB(db, prog.program, prog)
 				}
 			}
 			if prog.state == Running {
@@ -83,28 +92,14 @@ func main() {
 		}
 
 		time.Sleep(500 * time.Millisecond)
-
-		//if isAnkiRunning() { // is Application running
-		//	if timer.state == Pause {
-		//		timer.start = time.Now()
-		//		go trackAnkiTime(&timer, timerch)
-		//	}
-		//} else {
-		//	if timer.state == Running {
-		//		timerch <- Pause
-		//	}
-		//}
-
 	}
 
 }
 
-// go routine for wathcing anki
 func isProgRunning(pn string) bool {
 	allPro, _ := dn.Processes()
 
 	for _, pro := range allPro {
-
 		if pro.Executable() == pn && isWindowActive(pn) {
 			return true
 		}
@@ -132,21 +127,6 @@ func getCurrentProg() string {
 	str := string(out)
 	str = strings.TrimSpace(str)
 	return str
-}
-
-// go routine for starting timer
-func trackAnkiTime(timer *ProgramTimer, c <-chan TimerState) {
-	start := timer.start
-
-	timer.state = Running
-	select {
-	case msg := <-c:
-		if msg == Pause {
-			timer.time += time.Since(start)
-			timer.state = Pause
-			return
-		}
-	}
 }
 
 func initDB(db *sql.DB) {
@@ -184,15 +164,53 @@ func sendDatatoDB(db *sql.DB, p Programs, t *ProgramTimer) {
 		log.Fatal(err)
 	}
 	programID, err := res.LastInsertId()
+	if programID == 0 {
+		// row already existed, look it up
+		row := db.QueryRow(`SELECT id FROM programs WHERE name = ?`, p.String())
+		if err := row.Scan(&programID); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	_, err = db.Exec(`
 INSERT INTO sessions (program_id, date, duration)
 VALUES (?, ?, ?)
 ON CONFLICT(program_id, date) DO UPDATE SET
     duration = excluded.duration
-`, programID, time.Now().Format(time.DateOnly), t.time.String())
+`, programID, time.Now().Format(time.DateOnly), int64(t.time.Seconds()))
 
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+func runReport() {
+	db, err := sql.Open("sqlite3", "./kansa.db")
+	if err != nil {
+		log.Fatal("DB open error: ", err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`
+SELECT p.name, s.date, s.duration
+FROM sessions s
+JOIN programs p ON p.id = s.program_id
+ORDER BY s.date DESC, p.name ASC
+`)
+	if err != nil {
+		log.Fatal("Query error: ", err)
+	}
+	defer rows.Close()
+
+	fmt.Println("Kansa immersion report")
+	fmt.Println("-----------------------")
+	for rows.Next() {
+		var name, date string
+		var seconds int64
+		if err := rows.Scan(&name, &date, &seconds); err != nil {
+			log.Fatal(err)
+		}
+		d := time.Duration(seconds) * time.Second
+		fmt.Printf("%-10s %-12s %v\n", name, date, d)
 	}
 }
